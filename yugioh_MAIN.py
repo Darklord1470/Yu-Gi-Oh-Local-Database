@@ -203,17 +203,17 @@ class CardDatabaseApp(QMainWindow):
             self.combo_ability.addItem(ab)
         self.combo_ability.currentTextChanged.connect(self.trigger_search)
 
-        self.lbl_race = QLabel("Type:")
-        self.combo_race = QComboBox()
-        self.combo_race.setIconSize(QSize(18, 18))
-        self.combo_race.setStyleSheet("""
+        self.lbl_type = QLabel("Type:")
+        self.combo_type = QComboBox()
+        self.combo_type.setIconSize(QSize(18, 18))
+        self.combo_type.setStyleSheet("""
             QComboBox, QGroupBox QComboBox {
                 min-width: 120px;
             }
         """)
         for rc in MONSTER_TYPES:
-            self.combo_race.addItem(rc)
-        self.combo_race.currentTextChanged.connect(self.trigger_search)
+            self.combo_type.addItem(rc)
+        self.combo_type.currentTextChanged.connect(self.trigger_search)
 
         self.lbl_attribute = QLabel("Attribute:")
         self.combo_attribute = QComboBox()
@@ -236,8 +236,8 @@ class CardDatabaseApp(QMainWindow):
         row1.addWidget(self.lbl_ability)
         row1.addWidget(self.combo_ability)
         row1.addSpacing(8)
-        row1.addWidget(self.lbl_race)
-        row1.addWidget(self.combo_race)
+        row1.addWidget(self.lbl_type)
+        row1.addWidget(self.combo_type)
         row1.addSpacing(8)
         row1.addWidget(self.lbl_attribute)
         row1.addWidget(self.combo_attribute)
@@ -386,7 +386,7 @@ class CardDatabaseApp(QMainWindow):
                 self.combo_sub_category.addItem(cat)
 
             self.combo_ability.setEnabled(True)
-            self.combo_race.setEnabled(True)
+            self.combo_type.setEnabled(True)
             self.combo_attribute.setEnabled(True)
             self.input_atk.setEnabled(True)
             self.input_def.setEnabled(True)
@@ -423,7 +423,7 @@ class CardDatabaseApp(QMainWindow):
         self.combo_sub_category.blockSignals(False)
 
     def disable_monster_filters(self):
-        for widget in [self.combo_ability, self.combo_race, self.combo_attribute]:
+        for widget in [self.combo_ability, self.combo_type, self.combo_attribute]:
             widget.blockSignals(True)
             widget.setCurrentIndex(0)
             widget.setEnabled(False)
@@ -492,7 +492,7 @@ class CardDatabaseApp(QMainWindow):
         kind = self.combo_kind.currentText()
         sub_cat = self.combo_sub_category.currentText()
         ability = self.combo_ability.currentText()
-        race = self.combo_race.currentText()
+        race = self.combo_type.currentText()
         attr = self.combo_attribute.currentText()
 
         def parse_stat(txt: str):
