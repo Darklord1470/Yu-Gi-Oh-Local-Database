@@ -7,7 +7,7 @@ class DatabaseUpdateWorker(QThread):
 
     Supports two operational modes:
       - 'fast': Syncs all JSONs; only downloads missing images.
-      - 'full':  Syncs all JSONs; forces redownload and overwrite of all images.
+      - 'full': Syncs all JSONs; forces redownload and overwrite of all images.
     """
     status_changed = Signal(str)
     progress_changed = Signal(int, int)        # (current, total)
