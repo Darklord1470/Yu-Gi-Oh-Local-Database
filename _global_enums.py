@@ -15,8 +15,6 @@ class SourceFetch:
 
     _icon_path = "icons"
     _font_path = "fonts"
-    _process_model_path = "512"
-    _persistent_path = "persistent"
 
     # =====================================
     # ICONS FETCHER
@@ -132,26 +130,6 @@ class SourceFetch:
         def path(self):
             return os.path.join(SourceFetch._base_path, SourceFetch._font_path, self.value)
 
-
-    class EditerPath(enum.Enum):
-        
-        EditerProcess = "CNNetworkOBSCURE512.pth"
-        EditerReverse = "CNNetworkCLAIR512.pth"
-        
-        @property
-        def path(self):
-            return os.path.join(SourceFetch._base_path, SourceFetch._process_model_path, self.value)
-        
-    # =====================================
-    # DATA FETCHER
-    # =====================================
-    class PersistentDataPath(enum.Enum):
-        
-        AllowedChars = "Payload_alphabet.json"
-        
-        @property
-        def path(self):
-            return os.path.join(SourceFetch._base_path, SourceFetch._persistent_path, self.value)
 
 if __name__ == "__main__":
     pass
