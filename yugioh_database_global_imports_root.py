@@ -61,7 +61,7 @@ TRAP_PROPERTIES = [
 ]
 MONSTER_ABILITIES = ["All", "Tuner", "Toon", "Gemini", "Spirit", "Union", "Flip"]
 ATTRIBUTES = ["All", "FIRE", "WATER", "WIND", "EARTH", "LIGHT", "DARK", "DIVINE"]
-MONSTER_RACES = [
+MONSTER_TYPES = [
     "All", "Aqua", "Beast", "Beast-Warrior", "Cyberse", "Dinosaur", "Divine-Beast",
     "Dragon", "Fairy", "Fiend", "Fish", "Illusion", "Insect", "Machine", "Plant",
     "Psychic", "Pyro", "Reptile", "Rock", "Sea Serpent", "Spellcaster", "Thunder",
