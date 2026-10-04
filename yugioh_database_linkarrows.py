@@ -92,7 +92,7 @@ class LinkArrowSelector(QWidget):
 
         self.center_lbl = QPushButton()
         self.center_lbl.setText("LINK")
-        self.center_lbl.setCheckable(True)
+        self.center_lbl.setCheckable(False)
         self.center_lbl.setEnabled(False)
         self.center_lbl.setFixedSize(self.CELL_SIZE, self.CELL_SIZE)
 
