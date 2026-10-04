@@ -118,7 +118,6 @@ class CardDatabaseApp(QMainWindow):
 
         self.boxstate = DisplayView1()
 
-        # Connect views decoupled via duck-typing signals
         self.boxstate.database_updated.connect(self.on_database_synced)
         self.statestack.addWidget(self.boxstate)
 
@@ -601,10 +600,6 @@ class CardDatabaseApp(QMainWindow):
             if self.state[self.index] != 1 or artworks:
                 item.setData(Qt.UserRole, card)
                 self.list_results.addItem(item)
-
-        #if self.list_results.count() > 0:
-            #self.list_results.setCurrentRow(0)
-            #self.display_current_card(self.list_results.item(0).data(Qt.UserRole))
 
     def on_card_clicked(self, item: QListWidgetItem):
         card = item.data(Qt.UserRole)
