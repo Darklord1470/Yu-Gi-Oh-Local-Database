@@ -1,0 +1,7 @@
+numpy==2.5.3
+Pillow==12.3.0
+pyside6==6.9.3
+pyside6_addons==6.9.3
+pyside6_essentials==6.9.3
+Requests==2.34.2
+urllib3==2.8.0
