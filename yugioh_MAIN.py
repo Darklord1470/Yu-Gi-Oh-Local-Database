@@ -211,7 +211,7 @@ class CardDatabaseApp(QMainWindow):
                 min-width: 120px;
             }
         """)
-        for rc in MONSTER_RACES:
+        for rc in MONSTER_TYPES:
             self.combo_race.addItem(rc)
         self.combo_race.currentTextChanged.connect(self.trigger_search)
 
