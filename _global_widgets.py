@@ -183,9 +183,9 @@ class TypingLabel(QLabel):
             self.timer.stop()
 
 
-#=============================================#
+# =============================================
 # SLOW TEXT (when displayed) TEXTEDIT
-#=============================================#
+# =============================================
 
 class TypingTextEdit(QTextEdit):
     def __init__(self, parent=None):
