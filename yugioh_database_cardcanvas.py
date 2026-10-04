@@ -6,8 +6,6 @@ class CardViewCanvas(QWidget):
         super().__init__(parent)
         self.pixmap = None
         self.img_path = Path()
-        self.processed_img = None
-        self.img_changed_counter = 0
         self.setFixedSize(int(388*size_mult[0]), int(570*size_mult[1]))
         self.reset_to_default()
 
@@ -15,19 +13,13 @@ class CardViewCanvas(QWidget):
         if file_path and os.path.isfile(file_path):
             self.pixmap = QPixmap(file_path)
             self.img_path = Path(file_path)
-            self.img_changed_counter += 1
         else:
             self.pixmap = None
         self.update()
 
-    def get_image(self):
-        return self.processed_img
-
     def set_image_from_image(self, image: Image.Image = None):
         if image:
             self.pixmap = toqpixmap(image)
-            self.processed_img = image
-            self.img_changed_counter += 1
             self.update()
 
     def paintEvent(self, event):
