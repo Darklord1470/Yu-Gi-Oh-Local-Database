@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import json
+import orjson
 import time
 import requests
 import concurrent.futures

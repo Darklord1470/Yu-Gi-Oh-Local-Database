@@ -50,6 +50,31 @@ class CardLoaderWorker(QThread):
             self.loading_finished.emit([])
             return
 
+        # ATTEMPT TO LOAD DATA FROM CACHE
+        cache_path = os.path.join(self.json_folder, "_catalog_cache.json")
+            
+        # Fast path: load the single unified cache file in one read
+        if os.path.isfile(cache_path):
+            try:
+                with open(cache_path, "r", encoding="utf-8") as f:
+                    cards_pool = json.load(f)
+
+                cards = [c for c in cards_pool if isinstance(c, dict) and is_playable_card(c)]
+                total = len(cards)
+
+                # Update progress bar from 0 to 100%
+                self.progress_changed.emit(total, total)
+
+                # Pre-sort alphabetically
+                cards.sort(key=lambda c: c.get("name", "").lower())
+                self.loading_finished.emit(cards)
+
+                return
+            
+            except Exception:
+                pass
+
+        # NORMAL LOAD IF CACHE LOAD FAILS OR NO CACHE IS FOUND
         json_files = [f for f in os.listdir(self.json_folder) if f.endswith(".json")]
         total = len(json_files)
 
@@ -65,8 +90,8 @@ class CardLoaderWorker(QThread):
 
             file_path = os.path.join(self.json_folder, filename)
             try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    card_data = json.load(f)
+                with open(file_path, "rb") as f:
+                    card_data = orjson.loads(f.read())
                     # Filter out non-playable entities (Tokens, Skill cards, Counters)
                     if is_playable_card(card_data):
                         cards.append(card_data)
@@ -74,7 +99,8 @@ class CardLoaderWorker(QThread):
                 continue
 
             # Yield GIL and emit progress every 50 files to maintain UI responsiveness
-            self.progress_changed.emit(idx, total)
+            if idx % 100 == 0 or idx == total:
+                self.progress_changed.emit(idx, total)
 
         if not self.isInterruptionRequested():
             # Pre-sort master list alphabetically by card name for consistent search slicing

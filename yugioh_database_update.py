@@ -662,6 +662,20 @@ class DatabaseUpdateWorker(QThread):
         # =====================================================================
         self.generate_thumbnails(force=is_full_sync)
 
+
+        # =====================================================================
+        # PHASE 3: CREATE CACHE JSON FILE FOR FAST LOADING
+        # =====================================================================
+        cache_path = os.path.join(JSON_FOLDER, "_catalog_cache.json")
+        try:
+            playable_cards = [c for c in cards_data if is_playable_card(c)]
+            with open(cache_path, "w", encoding="utf-8") as f:
+                json.dump(playable_cards, f, ensure_ascii=False)
+        except Exception as e:
+            self._log_error(f"Failed to write catalog cache: {e}")
+
+            ######################
+
         if not self.isInterruptionRequested():
             self.status_changed.emit("Sync complete.")
             self.sync_finished.emit(cards_data, downloaded_count, error_count)

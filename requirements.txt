@@ -1,5 +1,6 @@
-numpy==2.5.3
-Pillow==12.3.0
+numpy==2.1.2
+orjson==3.13.0
+Pillow==11.0.0
 pyside6==6.9.3
 pyside6_addons==6.9.3
 pyside6_essentials==6.9.3
