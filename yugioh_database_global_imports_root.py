@@ -1,5 +1,10 @@
+import numpy as np
+import yugioh_database_DEFINE as DEFINE
+
+import io
 import os
 import sys
+import argparse
 import json
 import time
 import requests
@@ -12,8 +17,11 @@ import re
 import enum
 import base64
 import html
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Union, List, Tuple
 from pathlib import Path
 import struct
+import math
 from PIL import Image, ImageFile
 from PIL.ImageQt import toqpixmap
 
@@ -21,7 +29,6 @@ from PIL.ImageQt import toqpixmap
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 from datetime import datetime
-import numpy as np
 import traceback
 
 from PySide6.QtCore import (Qt, QTimer, QSize, QRect, QObject, QEvent, QRegularExpression, Signal, QThread, 
@@ -34,7 +41,8 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QGridLayout, QLineEdit, QComboBox, QSpinBox, QLabel, QTextEdit,
     QListWidget, QListWidgetItem, QGroupBox, QPushButton, QToolButton,
-    QFrame, QSizePolicy, QStackedWidget, QStackedLayout, QDialog, QToolTip, QFileDialog, QProgressBar
+    QFrame, QSizePolicy, QStackedWidget, QStackedLayout, QDialog, QToolTip, QFileDialog,
+    QCheckBox, QProgressBar
 )
 
 
@@ -46,6 +54,7 @@ API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 JSON_FOLDER = "cards_data"
 IMG_FULL_FOLDER = "cards_images_full"
 IMG_CROP_FOLDER = "cards_images_artwork"
+IMG_THUMB_FOLDER = "cards_images_thumbnail"
 ICONS_FOLDER = "icons"
 
 CARD_KINDS = ["All", "Monster", "Spell", "Trap"]
@@ -61,7 +70,7 @@ TRAP_PROPERTIES = [
 ]
 MONSTER_ABILITIES = ["All", "Tuner", "Toon", "Gemini", "Spirit", "Union", "Flip"]
 ATTRIBUTES = ["All", "FIRE", "WATER", "WIND", "EARTH", "LIGHT", "DARK", "DIVINE"]
-MONSTER_TYPES = [
+MONSTER_RACES = [
     "All", "Aqua", "Beast", "Beast-Warrior", "Cyberse", "Dinosaur", "Divine-Beast",
     "Dragon", "Fairy", "Fiend", "Fish", "Illusion", "Insect", "Machine", "Plant",
     "Psychic", "Pyro", "Reptile", "Rock", "Sea Serpent", "Spellcaster", "Thunder",

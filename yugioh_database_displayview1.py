@@ -133,11 +133,11 @@ class DisplayView1(QFrame):
 
         if fetch_mode == "fast":
             self.btn_quick_refresh_db.setEnabled(False)
-            self.btn_quick_refresh_db.setText("Syncing...")
+            self.btn_quick_refresh_db.setText(" Syncing...")
 
         if fetch_mode == "full":
             self.btn_refresh_db.setEnabled(False)
-            self.btn_refresh_db.setText("Syncing...")
+            self.btn_refresh_db.setText(" Syncing...")
 
         self.update_worker = DatabaseUpdateWorker()
         self.update_worker.status_changed.connect(lambda msg: self._on_sync_status(msg, fetch_mode))
@@ -152,20 +152,20 @@ class DisplayView1(QFrame):
             self.update_worker.sync_full()
 
     def _on_sync_status(self, message: str, fetch_mode: str):
-        display_text = message if len(message) <= 15 else message[:16] + "..."
+        display_text = message if len(message) <= 15 else message[:16]
 
         if fetch_mode == "fast":
-            self.btn_quick_refresh_db.setText(display_text)
+            self.btn_quick_refresh_db.setText(f" {display_text}")
 
         if fetch_mode == "full":
-            self.btn_refresh_db.setText(display_text)
+            self.btn_refresh_db.setText(f" {display_text}")
 
     def _on_sync_progress(self, current: int, total: int, fetch_mode: str):
         if fetch_mode == "fast":
-            self.btn_quick_refresh_db.setText(f"Img: {current}/{total}")
+            self.btn_quick_refresh_db.setText(f" Img: {(current/total)*100:.1f}%")
 
         if fetch_mode == "full":
-            self.btn_refresh_db.setText(f"Img: {current}/{total}")
+            self.btn_refresh_db.setText(f" Img: {(current/total)*100:.1f}%")
 
     def _on_sync_finished(self, new_cards: list, downloaded: int, errors: int, fetch_mode: str):
         if fetch_mode == "fast":
@@ -232,7 +232,7 @@ class DisplayView1(QFrame):
         self.lbl_stats.setText("   |   ".join(stats) if stats else "")
         self.txt_desc.type_text(card.get("desc", ""), 0)
 
-        self.current_artworks = resolve_artwork_paths(card)
+        self.current_artworks = resolve_artwork_paths(card, self.state == 1)
         self.current_art_index = 0
 
         if len(self.current_artworks) > 1:

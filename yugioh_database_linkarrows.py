@@ -26,7 +26,6 @@ class LinkArrowSelector(QWidget):
         self.buttons: dict[str, QToolButton] = {}
         self.active_icons: dict[str, QIcon] = {}
         self.inactive_icons: dict[str, QIcon] = {}
-        self.cache: list[int] = []
 
         total_size = (self.CELL_SIZE * 3) + (self.SPACING * 2) + 10
         self.setFixedSize(total_size, total_size)
@@ -95,7 +94,6 @@ class LinkArrowSelector(QWidget):
         self.center_lbl.setCheckable(False)
         self.center_lbl.setEnabled(False)
         self.center_lbl.setFixedSize(self.CELL_SIZE, self.CELL_SIZE)
-
         self.center_lbl.setStyleSheet(f"""
             QPushButton {{
                 min-width: {self.CELL_SIZE}px;
@@ -136,11 +134,6 @@ class LinkArrowSelector(QWidget):
         return QIcon()
 
     def _on_button_toggled(self, api_name: str, checked: bool):
-        direction_names = [d[2] for d in self.DIRECTIONS]
-        if api_name in direction_names:
-            self.cache.append(direction_names.index(api_name))
-            self.cache = self.cache[-8:]
-
         btn = self.buttons[api_name]
         btn.setIcon(self.active_icons[api_name] if checked else self.inactive_icons[api_name])
         self.markers_changed.emit(self.get_selected_markers())

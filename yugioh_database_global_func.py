@@ -25,7 +25,7 @@ def is_playable_card(card: dict) -> bool:
     return True
 
 
-def resolve_artwork_paths(card_data: dict) -> list[str]:
+def resolve_artwork_paths(card_data: dict, filter: bool = False) -> list[str]:
     """Finds all full artwork paths supporting composite {card_id}_{img_id} and single {id}."""
     if not os.path.exists(IMG_FULL_FOLDER):
         return []

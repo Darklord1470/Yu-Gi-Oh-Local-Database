@@ -1,18 +1,3 @@
-import os
-import io
-import re
-import json
-import time
-import requests
-import numpy as np
-from PIL import Image
-from pathlib import Path
-from threading import Lock
-import concurrent.futures
-from urllib3.util import Retry
-from requests.adapters import HTTPAdapter
-from PySide6.QtCore import QThread, Signal
-
 # Import globals and environment constants
 from yugioh_database_global_func import *
 
@@ -33,6 +18,11 @@ except NameError:
     IMG_CROP_FOLDER = "cards_images_artwork"
 
 try:
+    IMG_THUMB_FOLDER
+except NameError:
+    IMG_THUMB_FOLDER = "cards_images_thumbnail"
+
+try:
     API_URL
 except NameError:
     API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
@@ -42,7 +32,7 @@ YUGIPEDIA_API_URL = "https://yugipedia.com/api.php"
 
 class DatabaseUpdateWorker(QThread):
     """
-    Background worker that updates the card catalog and artwork cache
+    Background worker that updates the card catalog, artwork cache, and thumbnails
     without freezing the PySide6 UI.
 
     Supports two operational modes:
@@ -54,17 +44,24 @@ class DatabaseUpdateWorker(QThread):
     sync_finished = Signal(list, int, int)     # (cards_data, downloaded_images, errors)
     error_occurred = Signal(str)
 
-    def __init__(self, max_workers: int = 4, timeout: int = 30, art_box: Tuple[int] = None, parent=None):
+    def __init__(self, max_workers: int = 4, timeout: int = 30, art_box: tuple = None, parent=None):
         super().__init__(parent)
         self.max_workers = max_workers
         self.timeout = timeout
         self.art_box = art_box or DEFINE.top_left
         self.mode = "fast"  # 'fast' or 'full'
+        
         self.log_lock = Lock()
+        self.yp_lock = Lock()
+        self.executor = None
         self.http_session = self._create_session()
 
+        # Circuit Breaker attributes for Yugipedia
+        self.yp_circuit_broken = False
+        self.consecutive_yp_failures = 0
+
     # =========================================================================
-    # NETWORKING & ERROR LOGGING
+    # NETWORKING, LOGGING & KILL-SWITCH
     # =========================================================================
 
     def _create_session(self) -> requests.Session:
@@ -87,6 +84,23 @@ class DatabaseUpdateWorker(QThread):
         with self.log_lock:
             with open("ERR.txt", "a", encoding="utf-8") as f:
                 f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+
+    def requestInterruption(self):
+        """
+        Kill-switch handler: signals interruption, terminates queued executor tasks,
+        and closes the HTTP session immediately to release socket reads.
+        """
+        super().requestInterruption()
+        if self.executor:
+            try:
+                self.executor.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+        if self.http_session:
+            try:
+                self.http_session.close()
+            except Exception:
+                pass
 
     # =========================================================================
     # CORE ARRAY COMPOSITING
@@ -135,7 +149,7 @@ class DatabaseUpdateWorker(QThread):
         self, card_data: dict, fetch_all: bool = False, fetch_crops: bool = False, force: bool = False
     ) -> tuple[list[str], int]:
         """
-        Downloads card scans from YGOPRODeck saved losslessly as PNG.
+        Downloads card scans from YGOPRODeck saved as JPEG (quality=92).
         Returns a tuple of (downloaded_full_paths, download_count).
         """
         card_id = str(card_data.get("id"))
@@ -146,8 +160,11 @@ class DatabaseUpdateWorker(QThread):
         new_downloads = 0
 
         for img_obj in target_images:
+            if self.isInterruptionRequested():
+                break
+
             img_id = str(img_obj.get("id", card_id))
-            full_dest = os.path.join(IMG_FULL_FOLDER, f"{card_id}_{img_id}.png")
+            full_dest = os.path.join(IMG_FULL_FOLDER, f"{card_id}_{img_id}.jpg")
 
             # 1. Full Image Scan
             if not os.path.isfile(full_dest) or force:
@@ -156,7 +173,7 @@ class DatabaseUpdateWorker(QThread):
                     res = self.http_session.get(url, timeout=self.timeout)
                     if res.status_code == 200:
                         with Image.open(io.BytesIO(res.content)) as f_img:
-                            f_img.convert("RGB").save(full_dest, "PNG")
+                            f_img.convert("RGB").save(full_dest, "JPEG", quality=92, optimize=True)
                         new_downloads += 1
                         downloaded_paths.append(full_dest)
                 except Exception as e:
@@ -164,9 +181,9 @@ class DatabaseUpdateWorker(QThread):
             else:
                 downloaded_paths.append(full_dest)
 
-            # 2. Cropped Artwork (Standardized to 624x624 PNG)
+            # 2. Cropped Artwork (Standardized to 624x624 JPEG)
             if fetch_crops:
-                crop_dest = os.path.join(IMG_CROP_FOLDER, f"{card_id}_{img_id}.png")
+                crop_dest = os.path.join(IMG_CROP_FOLDER, f"{card_id}_{img_id}.jpg")
                 if not os.path.isfile(crop_dest) or force:
                     crop_url = (
                         img_obj.get("image_url_cropped")
@@ -176,9 +193,9 @@ class DatabaseUpdateWorker(QThread):
                         res = self.http_session.get(crop_url, timeout=self.timeout)
                         if res.status_code == 200:
                             with Image.open(io.BytesIO(res.content)) as c_img:
-                                c_img.convert("RGBA").resize(
+                                c_img.convert("RGB").resize(
                                     (624, 624), Image.Resampling.LANCZOS
-                                ).save(crop_dest, "PNG")
+                                ).save(crop_dest, "JPEG", quality=92, optimize=True)
                             new_downloads += 1
                     except Exception as e:
                         self._log_error(f"YGOPRO Crop DL Fail: {card_id}_{img_id} - {e}")
@@ -186,11 +203,41 @@ class DatabaseUpdateWorker(QThread):
         return downloaded_paths, new_downloads
 
     # =========================================================================
-    # YUGIPEDIA ARTWORK DISCOVERY
+    # YUGIPEDIA ARTWORK DISCOVERY & CIRCUIT BREAKER
     # =========================================================================
 
+    def _check_yugipedia_health(self) -> bool:
+        """Lightweight pre-flight probe to verify Yugipedia availability."""
+        try:
+            res = self.http_session.get(
+                YUGIPEDIA_API_URL,
+                params={"action": "query", "meta": "siteinfo", "format": "json"},
+                timeout=10
+            )
+            return res.status_code == 200
+        except Exception as e:
+            self._log_error(f"Yugipedia Pre-flight Check Failed: {e}")
+            return False
+
+    def _record_yp_failure(self, err_msg: str):
+        """Registers a failure and trips the circuit breaker if consecutive failures exceed 5."""
+        self._log_error(err_msg)
+        with self.yp_lock:
+            self.consecutive_yp_failures += 1
+            if self.consecutive_yp_failures >= 5 and not self.yp_circuit_broken:
+                self.yp_circuit_broken = True
+                breaker_msg = (
+                    "Yugipedia failure threshold reached (5 consecutive errors). "
+                    "Circuit breaker tripped: skipping external Yugipedia queries for remaining cards."
+                )
+                self._log_error(breaker_msg)
+                self.status_changed.emit("Yugipedia offline. Falling back to base cards...")
+
     def fetch_yugipedia_artworks(self, card_name: str) -> list[dict]:
-        """Scans Card_Artworks:{Card_Name} on Yugipedia and returns direct URLs."""
+        """Scans Card_Artworks:{Card_Name} on Yugipedia with circuit-breaker protection."""
+        if self.yp_circuit_broken:
+            return []
+
         sanitized_name = card_name.strip().replace(" ", "_")
         page_title = f"Card_Artworks:{sanitized_name}"
 
@@ -201,10 +248,14 @@ class DatabaseUpdateWorker(QThread):
             "format": "json"
         }
         try:
-            res = self.http_session.get(YUGIPEDIA_API_URL, params=params, timeout=20).json()
-            pages = res.get("query", {}).get("pages", {})
+            res = self.http_session.get(YUGIPEDIA_API_URL, params=params, timeout=20)
+            if res.status_code != 200:
+                raise requests.HTTPError(f"HTTP {res.status_code}")
+            pages = res.json().get("query", {}).get("pages", {})
+            with self.yp_lock:
+                self.consecutive_yp_failures = 0
         except Exception as e:
-            self._log_error(f"Yugipedia Query Fail: {card_name} - {e}")
+            self._record_yp_failure(f"Yugipedia Query Fail: {card_name} - {e}")
             return []
 
         file_titles = []
@@ -237,10 +288,14 @@ class DatabaseUpdateWorker(QThread):
             "format": "json"
         }
         try:
-            info_res = self.http_session.get(YUGIPEDIA_API_URL, params=info_params, timeout=20).json()
-            pages_info = info_res.get("query", {}).get("pages", {})
+            info_res = self.http_session.get(YUGIPEDIA_API_URL, params=info_params, timeout=20)
+            if info_res.status_code != 200:
+                raise requests.HTTPError(f"HTTP {info_res.status_code}")
+            pages_info = info_res.json().get("query", {}).get("pages", {})
+            with self.yp_lock:
+                self.consecutive_yp_failures = 0
         except Exception as e:
-            self._log_error(f"Yugipedia ImageInfo Fail: {card_name} - {e}")
+            self._record_yp_failure(f"Yugipedia ImageInfo Fail: {card_name} - {e}")
             return []
 
         url_lookup = {}
@@ -292,16 +347,58 @@ class DatabaseUpdateWorker(QThread):
 
         for img_obj in card_data.get("card_images", []):
             art_id = str(img_obj.get("id", cid))
-            full_path = os.path.join(IMG_FULL_FOLDER, f"{cid}_{art_id}.png")
+            full_path = os.path.join(IMG_FULL_FOLDER, f"{cid}_{art_id}.jpg")
             if not os.path.isfile(full_path):
                 return False
 
             if is_pendulum or art_id.startswith("yp_crop_"):
-                crop_path = os.path.join(IMG_CROP_FOLDER, f"{cid}_{art_id}.png")
+                crop_path = os.path.join(IMG_CROP_FOLDER, f"{cid}_{art_id}.jpg")
                 if not os.path.isfile(crop_path):
                     return False
 
         return True
+
+    # =========================================================================
+    # DECOUPLED THUMBNAIL GENERATION
+    # =========================================================================
+
+    def generate_thumbnails(self, force: bool = False) -> int:
+        """
+        Independent task that creates 38x55 thumbnails in IMG_THUMB_FOLDER
+        from all available card scans in IMG_FULL_FOLDER.
+        Thumbnails remain in lossless PNG format.
+        """
+        os.makedirs(IMG_THUMB_FOLDER, exist_ok=True)
+        full_files = [f for f in os.listdir(IMG_FULL_FOLDER) if f.endswith(".jpg") or f.endswith(".png")]
+        total = len(full_files)
+        if total == 0:
+            return 0
+
+        self.status_changed.emit("Generating thumbnails...")
+        self.progress_changed.emit(0, total)
+
+        created_count = 0
+        for idx, filename in enumerate(full_files, start=1):
+            if self.isInterruptionRequested():
+                break
+
+            stem = Path(filename).stem
+            thumb_path = os.path.join(IMG_THUMB_FOLDER, f"{stem}.png")
+
+            if not os.path.isfile(thumb_path) or force:
+                src_path = os.path.join(IMG_FULL_FOLDER, filename)
+                try:
+                    with Image.open(src_path) as img:
+                        thumb = img.convert("RGB").resize((38, 55), Image.Resampling.BILINEAR)
+                        thumb.save(thumb_path, "PNG")
+                    created_count += 1
+                except Exception as e:
+                    self._log_error(f"Thumbnail Fail: {filename} - {e}")
+
+            if idx % 100 == 0 or idx == total:
+                self.progress_changed.emit(idx, total)
+
+        return created_count
 
     # =========================================================================
     # WORKER CONTROLS & MAIN EXECUTION
@@ -324,10 +421,19 @@ class DatabaseUpdateWorker(QThread):
         return True
 
     def run(self):
-        for folder in [JSON_FOLDER, IMG_FULL_FOLDER, IMG_CROP_FOLDER]:
+        for folder in [JSON_FOLDER, IMG_FULL_FOLDER, IMG_CROP_FOLDER, IMG_THUMB_FOLDER]:
             os.makedirs(folder, exist_ok=True)
 
         is_full_sync = (self.mode == "full")
+        self.yp_circuit_broken = False
+        self.consecutive_yp_failures = 0
+
+        # Pre-flight health check on Yugipedia
+        if not self._check_yugipedia_health():
+            self.yp_circuit_broken = True
+            msg = "Yugipedia pre-flight health probe failed. Running in YGOPRODeck-only mode."
+            self._log_error(msg)
+            self.status_changed.emit("Yugipedia unavailable. Running fallback mode...")
 
         # 1. Fetch Remote Database Catalog from YGOPRODeck
         self.status_changed.emit(f"{self.mode.upper()} Fetching...")
@@ -362,7 +468,6 @@ class DatabaseUpdateWorker(QThread):
                     with open(json_path, "r", encoding="utf-8") as f:
                         local_json = json.load(f)
 
-                    # Preserve Yugipedia artworks and sync flag across updates
                     existing_yp = [
                         img for img in local_json.get("card_images", [])
                         if str(img.get("id", "")).startswith("yp_")
@@ -390,22 +495,13 @@ class DatabaseUpdateWorker(QThread):
             cards_to_process = [c for c in cards_data if not self._is_card_up_to_date(c)]
 
         total_tasks = len(cards_to_process)
-        if total_tasks == 0:
-            self.status_changed.emit("Already up to date.")
-            self.sync_finished.emit(cards_data, 0, 0)
-            return
-
-        sync_label = "Overwriting" if is_full_sync else "Syncing"
-        self.status_changed.emit(f"{sync_label} {total_tasks} cards...")
-        self.progress_changed.emit(0, total_tasks)
-
         downloaded_count = 0
         error_count = 0
         completed_tasks = 0
         progress_lock = Lock()
 
         # =====================================================================
-        # WORKER TASK EXECUTION PER CARD
+        # PHASE 1: WORKER TASK EXECUTION PER CARD (FETCH & FUSE)
         # =====================================================================
         def _process_card_task(card):
             nonlocal downloaded_count, error_count, completed_tasks
@@ -421,9 +517,7 @@ class DatabaseUpdateWorker(QThread):
             is_link = "link" in ctype or "link" in ftype
 
             try:
-                # -------------------------------------------------------------
                 # CASE 2: PENDULUM MONSTERS (Fetch EVERYTHING from YGOPRODeck)
-                # -------------------------------------------------------------
                 if is_pendulum:
                     _, new_dls = self.ensure_ygopro_images(
                         card, fetch_all=True, fetch_crops=True, force=is_full_sync
@@ -433,9 +527,7 @@ class DatabaseUpdateWorker(QThread):
                     card["yp_synced"] = True
                     self._save_card_json(card)
 
-                # -------------------------------------------------------------
                 # CASE 1 & 3: NORMAL & LINK MONSTERS (Base Template + Fusion)
-                # -------------------------------------------------------------
                 else:
                     # Step A: Ensure base card scan template exists
                     base_paths, new_base_dls = self.ensure_ygopro_images(
@@ -459,7 +551,10 @@ class DatabaseUpdateWorker(QThread):
                         )
                         with progress_lock:
                             downloaded_count += new_crop_dls
-                        card["yp_synced"] = True
+
+                        # Only mark as synced if Yugipedia was actually reachable and had no variants
+                        if not self.yp_circuit_broken:
+                            card["yp_synced"] = True
                         self._save_card_json(card)
 
                     else:
@@ -478,13 +573,13 @@ class DatabaseUpdateWorker(QThread):
                                 # Case 1A: Extended Art / Overframe -> Full-card scan
                                 if art_type == "extended":
                                     art_id = f"yp_ea_{idx}"
-                                    ext_dest = os.path.join(IMG_FULL_FOLDER, f"{cid}_{art_id}.png")
+                                    ext_dest = os.path.join(IMG_FULL_FOLDER, f"{cid}_{art_id}.jpg")
 
                                     if not os.path.isfile(ext_dest) or is_full_sync:
                                         res = self.http_session.get(url, timeout=self.timeout)
                                         if res.status_code == 200:
                                             with Image.open(io.BytesIO(res.content)) as ea_img:
-                                                ea_img.convert("RGB").save(ext_dest, "PNG")
+                                                ea_img.convert("RGB").save(ext_dest, "JPEG", quality=92, optimize=True)
                                             with progress_lock:
                                                 downloaded_count += 1
                                     self.register_in_json(card, art_id)
@@ -492,8 +587,8 @@ class DatabaseUpdateWorker(QThread):
                                 # Case 1B: Square Cropped Illustration -> Composite
                                 elif art_type == "crop":
                                     art_id = f"yp_crop_{idx}"
-                                    std_crop_path = os.path.join(IMG_CROP_FOLDER, f"{cid}_{art_id}.png")
-                                    fused_out_path = os.path.join(IMG_FULL_FOLDER, f"{cid}_{art_id}.png")
+                                    std_crop_path = os.path.join(IMG_CROP_FOLDER, f"{cid}_{art_id}.jpg")
+                                    fused_out_path = os.path.join(IMG_FULL_FOLDER, f"{cid}_{art_id}.jpg")
 
                                     need_crop = not os.path.isfile(std_crop_path) or is_full_sync
                                     need_fused = not os.path.isfile(fused_out_path) or is_full_sync
@@ -502,10 +597,10 @@ class DatabaseUpdateWorker(QThread):
                                         res = self.http_session.get(url, timeout=self.timeout)
                                         if res.status_code == 200:
                                             with Image.open(io.BytesIO(res.content)) as raw_crop:
-                                                crop_624 = raw_crop.convert("RGBA").resize(
+                                                crop_624 = raw_crop.convert("RGB").resize(
                                                     (624, 624), Image.Resampling.LANCZOS
                                                 )
-                                                crop_624.save(std_crop_path, "PNG")
+                                                crop_624.save(std_crop_path, "JPEG", quality=92, optimize=True)
 
                                             box_x = self.art_box[0]
                                             box_y = self.art_box[1]
@@ -519,7 +614,7 @@ class DatabaseUpdateWorker(QThread):
                                                     base_full, crop_624, box_x, box_y
                                                 )
 
-                                            fused_img.convert("RGB").save(fused_out_path, "PNG")
+                                            fused_img.convert("RGB").save(fused_out_path, "JPEG", quality=92, optimize=True)
                                             with progress_lock:
                                                 downloaded_count += 1
 
@@ -538,13 +633,35 @@ class DatabaseUpdateWorker(QThread):
                 if completed_tasks % 5 == 0 or completed_tasks == total_tasks:
                     self.progress_changed.emit(completed_tasks, total_tasks)
 
-            time.sleep(0.02)  # Respect polite request concurrency limits
+            time.sleep(0.02)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            futures = [executor.submit(_process_card_task, c) for c in cards_to_process]
-            for future in concurrent.futures.as_completed(futures):
+        if total_tasks > 0:
+            sync_label = "Overwriting" if is_full_sync else "Syncing"
+            self.status_changed.emit(f"{sync_label} {total_tasks} cards...")
+            self.progress_changed.emit(0, total_tasks)
+
+            self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers)
+            try:
+                futures = [self.executor.submit(_process_card_task, c) for c in cards_to_process]
+                for future in concurrent.futures.as_completed(futures):
+                    if self.isInterruptionRequested():
+                        self.executor.shutdown(wait=False, cancel_futures=True)
+                        break
+            finally:
                 if self.isInterruptionRequested():
-                    executor.shutdown(wait=False, cancel_futures=True)
-                    break
+                    self.executor.shutdown(wait=False, cancel_futures=True)
+                else:
+                    self.executor.shutdown(wait=True)
+                self.executor = None
 
-        self.sync_finished.emit(cards_data, downloaded_count, error_count)
+        if self.isInterruptionRequested():
+            return
+
+        # =====================================================================
+        # PHASE 2: DECOUPLED THUMBNAIL BAKING (PNG)
+        # =====================================================================
+        self.generate_thumbnails(force=is_full_sync)
+
+        if not self.isInterruptionRequested():
+            self.status_changed.emit("Sync complete.")
+            self.sync_finished.emit(cards_data, downloaded_count, error_count)
