@@ -7,3 +7,7 @@ A local Yu-Gi-Oh Database to browse and search all the cards in the game. You ca
 3) Enter the repository folder
 4) Run "pip install -r requirements.txt" to fetch the required packages
 5) Run "python yugioh_MAIN.py" to execute the main script
+6) Once the main window is opened, click on the "Full Update" button to fetch all cards (process will take time, DO NOT CLOSE THE APP BEFORE DOWNLOAD IS COMPLETED)
+
+# NOTE
+To download the entire database, ensure you have at least 7 GB of disk space
