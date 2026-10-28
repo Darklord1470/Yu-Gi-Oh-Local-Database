@@ -74,8 +74,7 @@ class CardLoaderWorker(QThread):
                 continue
 
             # Yield GIL and emit progress every 50 files to maintain UI responsiveness
-            if idx % 50 == 0 or idx == total:
-                self.progress_changed.emit(idx, total)
+            self.progress_changed.emit(idx, total)
 
         if not self.isInterruptionRequested():
             # Pre-sort master list alphabetically by card name for consistent search slicing

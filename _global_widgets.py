@@ -151,3 +151,33 @@ class CustomTitleBar(QWidget):
     
     def mouseDoubleClickEvent(self, event):
         self.toggle_maximize()
+
+#=============================================#
+# SLOW TEXT (when displayed) TEXTEDIT
+#=============================================#
+
+class TypingTextEdit(QTextEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.full_text = ""
+        self.current_index = 0
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._type_next_char)
+    
+    def type_text(self, text: str, speed_ms: int = 50):
+
+        if speed_ms == 0: # standard Qtextedit/Label behaviour
+            self.setText(text)
+
+        else:
+            self.full_text = text
+            self.current_index = 0
+            self.setText("")
+            self.timer.start(speed_ms)
+        
+    def _type_next_char(self):
+        if self.current_index < len(self.full_text):
+            self.setText(self.full_text[:self.current_index + 1])
+            self.current_index += 1
+        else:
+            self.timer.stop()
