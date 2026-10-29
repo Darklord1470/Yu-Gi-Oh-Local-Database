@@ -110,6 +110,11 @@ class DisplayView1(QFrame):
         self.btn_quick_refresh_db.setIcon(sanitize_icon(SourceFetch.IconType.Download.QIcon))
         self.btn_quick_refresh_db.setObjectName("quickRefreshBtn")
         self.btn_quick_refresh_db.setFixedWidth(150)
+        self.btn_quick_refresh_db.setToolTip(
+            "Updates the database by fetching new cards\n"
+            "(not in the database), if available."
+            )
+        self.btn_quick_refresh_db.setToolTipDuration(5000)
         self.btn_quick_refresh_db.clicked.connect(lambda: self.download_card_data("fast"))
         bottom_layout.addWidget(self.btn_quick_refresh_db)
 
@@ -117,6 +122,12 @@ class DisplayView1(QFrame):
         self.btn_refresh_db.setIcon(sanitize_icon(SourceFetch.IconType.Download.QIcon))
         self.btn_refresh_db.setObjectName("refreshBtn")
         self.btn_refresh_db.setFixedWidth(150)
+        self.btn_refresh_db.setToolTip(
+            "Builds the database from scratch by fetching\n" \
+            "all cards (cards already in the database will be" \
+            "overridden)."
+        )
+        self.btn_refresh_db.setToolTipDuration(5000)
         self.btn_refresh_db.clicked.connect(lambda: self.download_card_data("full"))
         bottom_layout.addWidget(self.btn_refresh_db)
 
